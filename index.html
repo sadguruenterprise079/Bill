@@ -751,54 +751,111 @@
     }
 
     statusEl.className = 'loading'; statusEl.style.display = 'inline-block';
-    statusEl.textContent = '⏳ Drive ma save thai rahu che...';
+    statusEl.textContent = '⏳ PDF banavi rahu che...';
 
-    // Collect only invoice DATA - no HTML content
+    // Capture full invoice HTML with all styles
+    const invoiceEl = document.getElementById('invoice');
+
+    // Get all CSS from page
+    let cssText = '';
+    for (const sheet of document.styleSheets) {
+      try {
+        for (const rule of sheet.cssRules) {
+          cssText += rule.cssText + '\n';
+        }
+      } catch(e) {}
+    }
+
+    // Clone invoice and clean for print
+    const clone = invoiceEl.cloneNode(true);
+
+    // Remove delete buttons and controls from clone
+    clone.querySelectorAll('.del-btn, .col-del, #last-inv-hint, .invoice-bg').forEach(el => el.remove());
+
+    // Replace contenteditable spans with plain text
+    clone.querySelectorAll('[contenteditable]').forEach(el => {
+      el.removeAttribute('contenteditable');
+    });
+
+    // Replace select dropdowns with text value
+    clone.querySelectorAll('select').forEach(sel => {
+      const span = document.createElement('span');
+      span.textContent = sel.options[sel.selectedIndex]?.text || '';
+      span.style.cssText = 'font-size:11px;font-family:Arial,sans-serif;';
+      sel.parentNode.replaceChild(span, sel);
+    });
+
+    // Replace input fields with text spans
+    clone.querySelectorAll('input').forEach(inp => {
+      const span = document.createElement('span');
+      span.textContent = inp.value || '';
+      span.style.cssText = inp.style.cssText || 'font-size:11px;font-family:Arial,sans-serif;';
+      inp.parentNode.replaceChild(span, inp);
+    });
+
+    const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;700&display=swap" rel="stylesheet">
+<style>
+${cssText}
+* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+body { margin: 0; padding: 10px; background: #fff; }
+.invoice { width: 100% !important; border: 2px solid #000; }
+@page { size: A4; margin: 6mm; }
+</style>
+</head>
+<body>${clone.outerHTML}</body>
+</html>`;
+
+    // Send to Google Drive via Apps Script
     const rows = [];
     document.querySelectorAll('#tbody tr').forEach(tr => {
-      const inputs = tr.querySelectorAll('input[type=number], input[type=text]');
-      const sel    = tr.querySelector('select');
-      const desc   = tr.querySelector('td.desc input')?.value || '';
-      const hsn    = tr.querySelectorAll('input[type=text]')[1]?.value || '';
-      const wt     = tr.querySelector('td[style*="padding:0"] input')?.value || '';
-      const unit   = sel?.value || '';
-      const allNum = tr.querySelectorAll('input[type=number]');
-      const qty    = allNum[0]?.value || '';
-      const rate   = allNum[1]?.value || '';
-      const amt    = allNum[2]?.value || '';
+      const desc = tr.querySelector('td.desc input')?.value || '';
+      const inputs = tr.querySelectorAll('input[type=text]');
+      const hsn = inputs[1]?.value || '';
+      const wtInput = tr.querySelector('td[style*="padding:0"] input');
+      const wt = wtInput?.value || '';
+      const sel = tr.querySelector('select');
+      const unit = sel?.value || '';
+      const numInputs = tr.querySelectorAll('input[type=number]');
+      const qty  = numInputs[0]?.value || '';
+      const rate = numInputs[1]?.value || '';
+      const amt  = numInputs[2]?.value || '';
       if (desc || amt) rows.push({ desc, hsn, wt, unit, qty, rate, amt });
     });
 
-    const params = new URLSearchParams({
-      action:     'saveInvoice',
-      invoiceNo:  invoiceNo,
-      date:       invDate,
-      custName:   custName,
-      custAddr:   document.getElementById('cust-address')?.innerText.trim() || '',
-      custGstin:  document.getElementById('cust-gstin')?.innerText.trim() || '',
-      custState:  document.getElementById('cust-state')?.innerText.trim() || '',
-      grandTotal: grandTotal,
-      cgst:       document.getElementById('cgstAmt')?.textContent || '0',
-      sgst:       document.getElementById('sgstAmt')?.textContent || '0',
-      igst:       document.getElementById('igstAmt')?.textContent || '0',
-      totalAmt:   document.getElementById('totalAmt')?.textContent || '0',
-      rows:       JSON.stringify(rows)
-    });
-
     try {
+      const params = new URLSearchParams({
+        action:     'saveInvoice',
+        invoiceNo:  invoiceNo,
+        date:       invDate,
+        custName:   custName,
+        custAddr:   document.getElementById('cust-address')?.innerText.trim() || '',
+        custGstin:  document.getElementById('cust-gstin')?.innerText.trim() || '',
+        custState:  document.getElementById('cust-state')?.innerText.trim() || '',
+        grandTotal: grandTotal,
+        cgst:       document.getElementById('cgstAmt')?.textContent || '0',
+        sgst:       document.getElementById('sgstAmt')?.textContent || '0',
+        igst:       document.getElementById('igstAmt')?.textContent || '0',
+        totalAmt:   document.getElementById('totalAmt')?.textContent || '0',
+        rupees:     document.getElementById('rupees-words')?.textContent || '',
+        rows:       JSON.stringify(rows),
+        htmlContent: btoa(unescape(encodeURIComponent(fullHtml)))
+      });
+
       const url = SHEET_API + '?' + params.toString();
       const res = await fetch(url, { redirect: 'follow' });
       const text = await res.text();
-      console.log('Response:', text);
 
       let data;
       try { data = JSON.parse(text); }
-      catch(pe) { throw new Error('Response: ' + text.substring(0, 200)); }
+      catch(pe) { throw new Error(text.substring(0, 200)); }
 
       if (data.status === 'ok') {
         statusEl.className = 'success';
         statusEl.innerHTML = '✅ Saved! <a href="' + data.fileUrl + '" target="_blank" style="color:#1565c0;font-weight:bold;">📄 PDF kholo</a>';
-        statusEl.style.display = 'inline-block';
       } else {
         throw new Error(data.msg || 'Server error');
       }
