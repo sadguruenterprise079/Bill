@@ -36,6 +36,11 @@
     .btn-add   { background:#1565c0; color:#fff; }
     .btn-clear { background:#c62828; color:#fff; }
     .btn-print { background:#2e7d32; color:#fff; }
+    .btn-save  { background:#e65100; color:#fff; }
+    #save-status { font-size:13px; font-weight:bold; padding:8px 14px; border-radius:5px; display:none; }
+    #save-status.success { background:#e8f5e9; color:#2e7d32; border:1px solid #2e7d32; }
+    #save-status.error   { background:#ffebee; color:#c62828; border:1px solid #c62828; }
+    #save-status.loading { background:#fff8e1; color:#e65100; border:1px solid #e65100; }
 
     /* ── INVOICE WRAPPER ── */
     .invoice {
@@ -329,6 +334,8 @@
   <button class="btn-add"   onclick="addRow()">＋ Row Add Karo</button>
   <button class="btn-clear" onclick="clearAll()">↺ Reset Karo</button>
   <button class="btn-print" onclick="window.print()">🖨 Print / PDF (A4)</button>
+  <button class="btn-save" onclick="saveInvoiceToDrive()">💾 Save Invoice (Drive)</button>
+  <div id="save-status"></div>
 </div>
 
 <div class="invoice" id="invoice">
@@ -517,8 +524,8 @@
     const rid = rowCount;
     tr.innerHTML = `
       <td>${rid}</td>
-      <td class="desc"><input type="text" placeholder="Item description..." oninput="autoAddRow(this)"></td>
-      <td><input type="text" placeholder="HSN" oninput="autoAddRow(this)"></td>
+      <td class="desc"><input type="text" placeholder="Item description..." ></td>
+      <td><input type="text" placeholder="HSN" ></td>
       <td style="padding:0;">
         <div style="display:flex;align-items:center;gap:0;">
           <input type="number" placeholder="0" min="0" step="any" style="border:none;outline:none;width:50%;font-size:11px;font-family:Arial,sans-serif;background:transparent;text-align:center;padding:3px 0;">
@@ -534,8 +541,8 @@
           </select>
         </div>
       </td>
-      <td><input type="number" placeholder="0" min="0" step="any" oninput="calcRow(this);autoAddRow(this)"></td>
-      <td><input type="number" placeholder="0.00" min="0" step="any" oninput="calcRow(this);autoAddRow(this)"></td>
+      <td><input type="number" placeholder="0" min="0" step="any" oninput="calcRow(this)"></td>
+      <td><input type="number" placeholder="0.00" min="0" step="any" oninput="calcRow(this)"></td>
       <td class="amt-cell"><input type="number" placeholder="0.00" readonly tabindex="-1"></td>
       <td class="col-del"><button class="del-btn" onclick="deleteRow('row-${rid}')">✕</button></td>`;
     document.getElementById('tbody').appendChild(tr);
@@ -624,15 +631,7 @@
     return parts.join(' ')+' Rupees';
   }
 
-  function autoAddRow(el) {
-    const tbody = document.getElementById('tbody');
-    const rows = tbody.querySelectorAll('tr');
-    const lastRow = rows[rows.length - 1];
-    // If the input is inside the last row, add a new row
-    if (lastRow && lastRow.contains(el)) {
-      addRow();
-    }
-  }
+
 
   // Init with 1 row only
   addRow();
@@ -730,6 +729,77 @@
 
   // Load customers when page opens
   loadAllCustomers();
+
+  // ── SAVE INVOICE TO GOOGLE DRIVE ──
+  async function saveInvoiceToDrive() {
+    const statusEl = document.getElementById('save-status');
+
+    // Get invoice details
+    const invoiceNo = document.getElementById('inv-no')?.innerText.trim() || '';
+    const custName  = document.getElementById('cust-name')?.innerText.trim() || '';
+    const invDate   = document.getElementById('inv-date')?.value || '';
+    const grandTotal = document.getElementById('grandTotal')?.textContent.trim() || '0';
+
+    if (!invoiceNo) {
+      statusEl.className = 'error';
+      statusEl.style.display = 'inline-block';
+      statusEl.textContent = '⚠️ Pehla Invoice No. bharo!';
+      setTimeout(() => statusEl.style.display = 'none', 3000);
+      return;
+    }
+    if (!custName) {
+      statusEl.className = 'error';
+      statusEl.style.display = 'inline-block';
+      statusEl.textContent = '⚠️ Pehla Customer Name bharo!';
+      setTimeout(() => statusEl.style.display = 'none', 3000);
+      return;
+    }
+
+    statusEl.className = 'loading';
+    statusEl.style.display = 'inline-block';
+    statusEl.textContent = '⏳ Drive ma save thai rahu che...';
+
+    // Get full invoice HTML
+    const invoiceEl = document.getElementById('invoice');
+    const content = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <style>
+        body { margin: 0; padding: 0; }
+        @page { size: A4; margin: 6mm; }
+        .controls, .del-btn, .col-del, #save-status { display: none !important; }
+        * { box-sizing: border-box; font-family: Arial, sans-serif; }
+      </style>
+      </head><body>${invoiceEl.outerHTML}</body></html>`;
+
+    // Format date for filename
+    const dateStr = invDate ? invDate.replace(/-/g, '') : new Date().toISOString().slice(0,10).replace(/-/g,'');
+
+    try {
+      const params = new URLSearchParams({
+        action:     'saveInvoice',
+        invoiceNo:  invoiceNo,
+        date:       invDate,
+        custName:   custName,
+        grandTotal: grandTotal,
+        content:    content
+      });
+
+      const res = await fetch(SHEET_API + '?' + params.toString());
+      const data = await res.json();
+
+      if (data.status === 'ok') {
+        statusEl.className = 'success';
+        statusEl.innerHTML = '✅ Saved! <a href="' + data.fileUrl + '" target="_blank" style="color:#1565c0;">📄 ' + data.fileName + ' kholo</a>';
+        statusEl.style.display = 'inline-block';
+      } else {
+        throw new Error('Server error');
+      }
+    } catch(err) {
+      statusEl.className = 'error';
+      statusEl.style.display = 'inline-block';
+      statusEl.textContent = '❌ Save nai thayu — internet check karo';
+      setTimeout(() => statusEl.style.display = 'none', 4000);
+    }
+  }
 
   // GST Smart Toggle
   function onTaxChange(type) {
