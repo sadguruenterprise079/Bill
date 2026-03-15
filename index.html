@@ -701,7 +701,7 @@
     if (matches.length === 0) { box.style.display = 'none'; return; }
 
     box.innerHTML = matches.map(c => `
-      <div class="gstin-suggestion-item" onclick="fillCustomer(${JSON.stringify(c).replace(/"/g, '&quot;')})">
+      <div class="gstin-suggestion-item" onmousedown="event.preventDefault(); fillCustomer(${JSON.stringify(c).replace(/"/g, '&quot;')})">
         <div class="gstin-main">${c.gstin}</div>
         <div class="gstin-sub">${c.name}${c.address ? ' — ' + c.address : ''}</div>
       </div>
@@ -718,7 +718,7 @@
     setTimeout(() => {
       document.getElementById('gstin-suggestions').style.display = 'none';
       saveCurrentCustomer();
-    }, 200);
+    }, 300);
   });
 
   // Close suggestions on outside click
