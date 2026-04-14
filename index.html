@@ -1762,13 +1762,28 @@
           return await res.blob();
         });
 
+        // ensure gapi auth exists and user is signed in
+        const auth = (window.gapi && gapi.auth2 && gapi.auth2.getAuthInstance) ? gapi.auth2.getAuthInstance() : null;
+        if (!auth) {
+          if (status) { status.style.color = 'red'; status.textContent = 'Google API not initialized'; }
+          throw new Error('gapi.auth2 not available');
+        }
+        if (!auth.isSignedIn.get()) {
+          if (status) { status.style.color = '#333'; status.textContent = 'Please sign in to Google...'; }
+          await auth.signIn();
+        }
+
         if (status) { status.textContent = 'Uploading...'; }
         const resp = await uploadFileToDrive(pdfBlob, 'Invoice-' + Date.now() + '.pdf');
         if (status) { status.style.color = 'green'; status.textContent = 'Saved to Drive'; }
         console.log('Drive file created:', resp);
       } catch (e) {
         console.error('Save to Drive failed', e);
-        const status = document.getElementById('drive-status'); if (status) { status.style.color = 'red'; status.textContent = 'Save failed'; }
+        const statusEl = document.getElementById('drive-status');
+        if (statusEl) {
+          statusEl.style.color = 'red';
+          statusEl.textContent = e && e.message ? ('Save failed: ' + e.message) : 'Save failed (see console)';
+        }
       }
     }
 
@@ -1797,7 +1812,18 @@
             method: 'POST',
             headers: { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
             body: multipartRequestBody
-          }).then(resp => resolve(resp.result)).catch(err => reject(err));
+          }).then(resp => resolve(resp.result)).catch(err => {
+            console.error('Drive upload error', err);
+            let msg = 'Upload failed';
+            try {
+              if (err && err.result && err.result.error && err.result.error.message) msg = err.result.error.message;
+              else if (err && err.body) {
+                const b = JSON.parse(err.body);
+                if (b && b.error && b.error.message) msg = b.error.message;
+              }
+            } catch (ex) {}
+            reject(new Error(msg));
+          });
         };
         reader.onerror = reject;
         reader.readAsDataURL(blob);
